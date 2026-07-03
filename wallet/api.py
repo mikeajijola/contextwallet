@@ -3,7 +3,6 @@ plus the wallet's own additive layer (`wallet/`). Single process, in-memory cons
 one sqlite conn. No live LLM calls on this path (non-negotiable #7): the classifier judge and
 the same-person adjudicator are the offline fakes in `wallet/adjudicators.py`.
 """
-from __future__ import annotations
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
