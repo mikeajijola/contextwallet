@@ -30,7 +30,6 @@ body {
   font-family: var(--font-body);
   font-size: 14px;
   overflow-x: hidden;
-  min-width: 1180px;
 }
 
 a,
@@ -50,8 +49,8 @@ input:focus-visible,
 
 /* ---- layout shell -------------------------------------------------- */
 .app {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
 }
 
@@ -63,6 +62,7 @@ input:focus-visible,
   padding: 14px 24px;
   background: var(--panel);
   border-bottom: 1px solid #dde2e8;
+  flex-wrap: wrap;
 }
 
 .app__identity {
@@ -86,6 +86,7 @@ input:focus-visible,
   display: grid;
   grid-template-columns: 280px 1fr 340px;
   min-height: 0;
+  flex-grow: 1;
 }
 
 .panel {
@@ -129,6 +130,7 @@ input:focus-visible,
 .viewas__pills {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .pill {
@@ -498,5 +500,36 @@ input:focus-visible,
   * {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---- responsive layout ---- */
+@media (max-width: 900px) {
+  .app {
+    height: auto;
+    min-height: 100vh;
+  }
+  
+  .app__body {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .map {
+    order: -1; /* Move map to top on mobile */
+    height: 60vh;
+    min-height: 400px;
+    border-bottom: 1px solid #dde2e8;
+  }
+  
+  .panel {
+    border-right: none;
+    border-bottom: 1px solid #dde2e8;
+  }
+  
+  .panel--right {
+    border-left: none;
+    border-bottom: none;
   }
 }
