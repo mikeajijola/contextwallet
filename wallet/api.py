@@ -64,15 +64,16 @@ class WalletState:
         self.connected: dict[str, bool] = {s: False for s in ALL_SOURCES}
         self.reports: dict[str, object] = {}
         self.consumers: dict[str, dict] = {
-            "colin": dict(consumer_id="colin", label="Colin's agent", holder="colin",
+            "colin": dict(consumer_id="colin", label="Colin", holder="colin",
                          owner=True, active=True, sources={s: True for s in ALL_SOURCES},
                          rows=None, cap=None),
             "acme": dict(consumer_id="acme", label="Acme org", holder="acme-assistant",
                         owner=False, active=True,
-                        sources={"crm_a": True, "crm_b": True, "whatsapp_calls": True},
+                        sources={"crm_a": True, "crm_b": True, "whatsapp_calls": True, "personal_notes": False},
                         rows=None, cap=None),
             "partner": dict(consumer_id="partner", label="External partner", holder="partner",
-                            owner=False, active=False, sources={"crm_a": True, "crm_b": True},
+                            owner=False, active=False, 
+                            sources={"crm_a": True, "crm_b": True, "whatsapp_calls": False, "personal_notes": False},
                             rows=[("crm_a", "a1"), ("crm_b", "b1")], cap=None),
         }
         for consumer_id in self.consumers:
@@ -121,7 +122,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Context Wallet API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -161,12 +162,29 @@ def _connector_row(source: str) -> dict:
           "status": "connected" if state.connected[source] else "available"}
     if state.connected[source]:
         report = state.reports[source]
+        
+        schema_fields = []
+        for f, band in report.bands.items():
+            entry = {"name": f, "band": band}
+            node = report.proposed_nodes.get(f)
+            if node:
+                entry["node"] = node
+            if f in report.proposals:
+                cp_id = report.proposals[f]
+                entry["status"] = state.demo.control_plane.status_of(cp_id) or "proposed"
+            elif band == "auto":
+                entry["status"] = "auto"
+            else:
+                entry["status"] = "deferred"
+            schema_fields.append(entry)
+            
         row["report"] = {
             "auto": len(report.auto_fields),
             "flagged": sum(1 for b in report.bands.values() if b == "flag"),
             "deferred": len(report.deferred),
             "proposals": [{"field": f, "status": state.demo.control_plane.status_of(cp_id) or "proposed"}
                          for f, cp_id in report.proposals.items()],
+            "schema": schema_fields,
         }
     return row
 
@@ -186,7 +204,7 @@ def _fetch_cell_value(cap, ctx: dict, cell) -> dict:
     if pcell is None:
         return {"refusal": "not available to you"}
     value = resolve_value(state.demo.ladder, pcell, cap, ctx)
-    if isinstance(value, Refusal) or isinstance(value, Symbol):
+    if type(value).__name__ in ("Refusal", "Symbol"):
         return {"refusal": "not available to you"}
     if cell.type.ontology_node == "transcript":
         return {"value": _read_transcript_pointer(value)}
@@ -217,6 +235,18 @@ async def connect_source(source: str):
     if not state.connected[source]:
         state.reports[source] = onboard_one(state.demo, source)
         state.connected[source] = True
+    return _connector_row(source)
+
+
+@app.post("/connectors/{source}/disconnect")
+async def disconnect_source(source: str):
+    if source not in ALL_SOURCES:
+        raise HTTPException(404, "unknown source")
+    if state.connected[source]:
+        # Clear out the cells for this source
+        state.demo.store.conn.execute("DELETE FROM cells WHERE source = ?", (source,))
+        state.demo.store.conn.commit()
+        state.connected[source] = False
     return _connector_row(source)
 
 
@@ -328,13 +358,13 @@ def _deal_status(cap, ctx: dict) -> dict:
     principal_id: Optional[str] = None
     if refs:
         rp = state.demo.resolve(refs, cap, ctx, overlay)
-        if isinstance(rp, Refusal):
+        if type(rp).__name__ == "Refusal":
             return {"answer_kind": "refusal", "cards": [_refusal_card()]}
         principal_id = rp.principal_id
         role_cs = wallet_cross_source_query(state.demo.store, overlay, principal_id, "role",
                                             cap, ctx, state.demo.ladder, state.demo.registry,
                                             state.demo.reader, state.wproj)
-        if isinstance(role_cs, Refusal):
+        if type(role_cs).__name__ == "Refusal":
             return {"answer_kind": "refusal", "cards": [_refusal_card()]}
         if isinstance(role_cs, ConflictSet) and role_cs.values:
             cards.append(_conflict_card(role_cs))
@@ -342,7 +372,7 @@ def _deal_status(cap, ctx: dict) -> dict:
         topic_cs = wallet_cross_source_query(state.demo.store, overlay, principal_id, "topic",
                                              cap, ctx, state.demo.ladder, state.demo.registry,
                                              state.demo.reader, state.wproj)
-        if isinstance(topic_cs, Refusal):
+        if type(topic_cs).__name__ == "Refusal":
             return {"answer_kind": "refusal", "cards": [_refusal_card()]}
         if isinstance(topic_cs, ConflictSet) and topic_cs.values:
             cards.append(_conflict_card(topic_cs))
@@ -372,7 +402,7 @@ def _signal_card(cap, ctx: dict) -> Optional[dict]:
     def _val(field: str):
         pcell = projected.cells[row_cells[field].cell_id]
         v = resolve_value(state.demo.ladder, pcell, cap, ctx)
-        return None if isinstance(v, (Refusal, Symbol)) else v
+        return None if type(v).__name__ in ("Refusal", "Symbol") else v
 
     topic, channel, participant = _val("topic"), _val("channel"), _val("participant")
     if topic is None or channel is None or participant is None:
@@ -414,9 +444,9 @@ def _whats_private(cap, ctx: dict) -> dict:
     cards = []
     for cell in visible:
         v = resolve_value(state.demo.ladder, projected.cells[cell.cell_id], cap, ctx)
-        if isinstance(v, Refusal):
+        if type(v).__name__ == "Refusal":
             return {"answer_kind": "refusal", "cards": [_refusal_card()]}
-        if isinstance(v, Symbol):
+        if type(v).__name__ == "Symbol":
             continue
         cards.append({"kind": "agreed", "value": v, "source": "personal_notes", "date": None})
     if not cards:
@@ -451,3 +481,86 @@ async def fetch(body: FetchRequest):
     if cell is None:
         raise HTTPException(404, "unknown cell_id")
     return _fetch_cell_value(cap, ctx, cell)
+
+# ============================================================================= /chat
+from wallet.chat import get_session_history, save_message, create_session, list_sessions, client as genai_client
+from google.genai import types
+
+class ChatRequest(BaseModel):
+    cap_id: str
+    message: str
+
+@app.get("/chat/sessions")
+async def get_chat_sessions():
+    return list_sessions(str(TRANSCRIPT_DIR.parent / "chat_history.db"))
+
+@app.post("/chat/sessions")
+async def new_chat_session():
+    session_id = create_session(str(TRANSCRIPT_DIR.parent / "chat_history.db"))
+    return {"session_id": session_id}
+
+@app.get("/chat/sessions/{session_id}")
+async def get_chat_history(session_id: str):
+    return get_session_history(str(TRANSCRIPT_DIR.parent / "chat_history.db"), session_id, limit=50)
+
+@app.post("/chat/sessions/{session_id}/message")
+async def send_chat_message(session_id: str, body: ChatRequest):
+    cap = _cap_for(body.cap_id)
+    ctx = {"purpose": cap.purpose}
+    db_path = str(TRANSCRIPT_DIR.parent / "chat_history.db")
+    
+    # Save user message
+    save_message(db_path, session_id, "user", body.message)
+    
+    # Get last 7 messages
+    history = get_session_history(db_path, session_id, limit=7)
+    
+    # Define tool
+    def query_wallet(query: str) -> str:
+        """Search the wallet for facts and data using a specific concept or name."""
+        try:
+            descent = state.descent.query(query, cap, ctx)
+            if descent.projected is None or not descent.projected.cells:
+                return "No information found."
+            
+            results = []
+            for cell_id, pcell in descent.projected.cells.items():
+                val = resolve_value(state.demo.ladder, pcell, cap, ctx)
+                if type(val).__name__ not in ("Refusal", "Symbol"):
+                    results.append(f"{field_of(pcell.ref.locator)}: {val}")
+                    
+            if not results:
+                return "No accessible values found."
+            return "\n".join(results)
+        except Exception as e:
+            return f"Error executing query_wallet: {e}"
+    
+    # Convert history for Gemini
+    contents = []
+    for msg in history[:-1]:  # Exclude current message which is added at the end
+        contents.append(types.Content(role=msg.role, parts=[types.Part.from_text(text=msg.content)]))
+    
+    sys_prompt = "You are a helpful AI assistant. You have a tool to query the digital twin wallet. Get all your facts by querying the wallet."
+    
+    print(f"DEBUG API: calling generate_content for session {session_id}")
+    def dummy_tool(text: str) -> str:
+        """A simple dummy tool."""
+        return "Dummy response"
+
+    try:
+        response = genai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=contents + [body.message],
+            config=types.GenerateContentConfig(
+                system_instruction=sys_prompt,
+                tools=[query_wallet, dummy_tool],
+                temperature=0.2,
+            )
+        )
+        reply = response.text
+    except Exception as e:
+        reply = f"Error calling LLM: {e}"
+        
+    # Save AI response
+    save_message(db_path, session_id, "model", reply)
+    return {"reply": reply}

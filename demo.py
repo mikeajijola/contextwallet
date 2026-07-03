@@ -122,7 +122,7 @@ class TwinDemo:
         """The single capability-scoped chain: resolve -> join, threading ONE overlay through
         BOTH. Returns (ResolvedPrincipal|Refusal, ConflictSet|Refusal)."""
         rp = self.resolve(refs, cap, ctx, overlay)
-        if isinstance(rp, Refusal):
+        if type(rp).__name__ == "Refusal":
             return rp, rp
         cs = self.cross_source_query(rp.principal_id, node, cap, ctx, overlay)
         return rp, cs

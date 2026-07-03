@@ -38,9 +38,9 @@ def cross_source_query(store, overlay, principal_id: str, node: str,
             dereference=registry.get(cell.policy_id).dereference,
         )
         value = resolve_value(ladder, pcell, cap, ctx)
-        if isinstance(value, Refusal):
+        if type(value).__name__ == "Refusal":
             return Refusal()                                # visible but not derefable -> flat refusal
-        if isinstance(value, Symbol):
+        if type(value).__name__ == "Symbol":
             continue
 
         source, row_key, _ = parse_locator(cell.ref.locator)

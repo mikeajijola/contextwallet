@@ -5,11 +5,19 @@ export interface Proposal {
   status: string;
 }
 
+export interface SchemaFieldDTO {
+  name: string;
+  band: string;
+  node?: string;
+  status: string;
+}
+
 export interface OnboardReportDTO {
   auto: number;
   flagged: number;
   deferred: number;
   proposals: Proposal[];
+  schema?: SchemaFieldDTO[];
 }
 
 export interface ConnectorDTO {

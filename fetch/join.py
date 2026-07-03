@@ -45,9 +45,9 @@ def cross_source_query(store, overlay, principal_id: str, node: str,
             dereference=registry.get(cell.policy_id).dereference,
         )
         value = ladder.resolve_value(pcell, cap, ctx)
-        if isinstance(value, Refusal):
+        if type(value).__name__ == "Refusal":
             return Refusal()                                # caller can't dereference -> flat refusal
-        if isinstance(value, Symbol):
+        if type(value).__name__ == "Symbol":
             continue                                        # symbolic mode: no concrete conflict
 
         source, row_key, _ = parse_locator(cell.ref.locator)

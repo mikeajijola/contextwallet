@@ -1,6 +1,6 @@
 import type { AskResponse, ConnectorDTO, ConsumerDTO, FetchResponse, GraphDTO } from "./types";
 
-const BASE = "http://127.0.0.1:8000";
+const BASE = "";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -16,6 +16,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   connectors: () => req<ConnectorDTO[]>("/connectors"),
   connect: (source: string) => req<ConnectorDTO>(`/connectors/${source}/connect`, { method: "POST" }),
+  disconnect: (source: string) => req<ConnectorDTO>(`/connectors/${source}/disconnect`, { method: "POST" }),
   consumers: () => req<ConsumerDTO[]>("/consumers"),
   setActive: (id: string, active: boolean) =>
     req<ConsumerDTO>(`/consumers/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }),
@@ -35,4 +36,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ cap_id: capId, cell_id: cellId }),
     }),
+  getSessions: () => req<{session_id: string, title: string}[]>("/chat/sessions"),
+  createSession: () => req<{session_id: string}>("/chat/sessions", { method: "POST" }),
+  getSessionHistory: (sessionId: string) => req<{role: string, content: string}[]>(`/chat/sessions/${sessionId}`),
+  sendChatMessage: (sessionId: string, capId: string, message: string) => 
+    req<{reply: string}>(`/chat/sessions/${sessionId}/message`, {
+      method: "POST",
+      body: JSON.stringify({ cap_id: capId, message }),
+    })
 };

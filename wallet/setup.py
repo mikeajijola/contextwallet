@@ -24,6 +24,7 @@ _CRM = {"crm_a": ("id", "email"), "crm_b": ("contact_id", "primary_email")}
 REQUIRED_FIELDS = {
     "whatsapp_calls": ["participant", "org", "channel", "topic", "transcript_ref"],
     "personal_notes": ["person", "org", "topic", "body"],
+    "chat_history": ["session_id", "role", "content", "timestamp"],
 }
 # known-truth ontology node for each required field — used ONLY as the sanctioned fallback
 # mint if the offline classifier defers/flags a field the new nodes may confuse it on.
@@ -31,11 +32,12 @@ _KNOWN_NODES = {
     "whatsapp_calls": {"participant": "person", "org": "organisation", "channel": "channel",
                        "topic": "topic", "transcript_ref": "transcript"},
     "personal_notes": {"person": "person", "org": "organisation", "topic": "topic", "body": "note"},
+    "chat_history": {"session_id": "session", "role": "role", "content": "note", "timestamp": "time"},
 }
 # the row-identifying field per personal source, for the Colin grouping rule.
 _NAME_FIELD = {"whatsapp_calls": "participant", "personal_notes": "person"}
 
-CONNECT_ORDER = ["crm_a", "crm_b", "whatsapp_calls", "personal_notes"]
+CONNECT_ORDER = ["crm_a", "crm_b", "whatsapp_calls", "personal_notes", "chat_history"]
 
 
 def onboarding_cap():
@@ -55,6 +57,9 @@ def ensure_groups(demo) -> str:
 
 
 def _colin_principal_of(source: str, colin_pid: str):
+    if source == "chat_history":
+        return lambda row: colin_pid
+        
     name_field = _NAME_FIELD[source]
 
     def principal_of(row: dict) -> Optional[str]:

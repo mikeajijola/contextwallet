@@ -5,7 +5,7 @@ import { Header } from "./components/Header";
 import { Connectors } from "./components/Connectors";
 import { GraphView } from "./components/GraphView";
 import { Access } from "./components/Access";
-import { AskResult } from "./components/Cards";
+import { Chat } from "./components/Chat";
 
 const EMPTY_GRAPH: GraphDTO = { nodes: [], edges: [] };
 
@@ -55,6 +55,12 @@ export default function App() {
 
   const handleConnect = async (source: string) => {
     await api.connect(source);
+    await refreshConnectors();
+    await refreshGraphFor(viewer?.cap_id);
+  };
+
+  const handleDisconnect = async (source: string) => {
+    await api.disconnect(source);
     await refreshConnectors();
     await refreshGraphFor(viewer?.cap_id);
   };
@@ -109,7 +115,11 @@ export default function App() {
     <div className="app">
       <Header consumers={consumers} viewerId={viewerId} onSelect={setViewerId} />
       <div className="app__body">
-        <Connectors connectors={connectors} onConnect={handleConnect} />
+        <Connectors 
+          connectors={connectors} 
+          onConnect={handleConnect} 
+          onDisconnect={handleDisconnect}
+        />
 
         <div className="map">
           <GraphView graph={graph} />
@@ -121,32 +131,8 @@ export default function App() {
             onToggleActive={handleToggleActive}
             onToggleSource={handleToggleSource}
           />
-          <div>
-            <div className="panel-title">Ask</div>
-            <div className="ask__buttons">
-              <button
-                className="ask__button"
-                onClick={() => handleAsk("deal_status")}
-                disabled={!viewer?.cap_id || asking}
-              >
-                Deal status
-              </button>
-              <button
-                className="ask__button"
-                onClick={() => handleAsk("whats_private")}
-                disabled={!viewer?.cap_id || asking}
-              >
-                What&rsquo;s private
-              </button>
-              <button
-                className="ask__button"
-                onClick={() => handleAsk("open_transcript")}
-                disabled={!viewer?.cap_id || asking}
-              >
-                Open transcript
-              </button>
-            </div>
-            <AskResult result={askResult} capId={viewer?.cap_id ?? null} />
+          <div style={{ flexGrow: 1, display: "flex", flexDirection: "column" }}>
+            <Chat capId={viewer?.cap_id ?? null} />
           </div>
         </div>
       </div>
