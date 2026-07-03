@@ -1,0 +1,10 @@
+contact_id,name,primary_email,job_role,org_name,last_touch,region
+b1,C. Marsh,colin.marsh@stripe.com,"Director, Platform",Stripe,2025-09-10,EMEA
+b2,D. Osei,,Operations Lead,Acme,,NA
+b3,Priya Nair,priya.nair@stripe.com,Staff Software Engineer,Stripe,2025-08-20,APAC
+b4,M. Webb,marcus.webb@globex.com,Chief Financial Officer,Globex,2025-07-25,NA
+b5,Elena Rossi,elena.r@acme.io,Senior AE,Acme,2025-09-05,EMEA
+b6,Nina Kowalski,nina.kowalski@initech.com,Engineering Manager,Initech,2025-08-01,EMEA
+b7,Sarah Chen,sarah.chen@umbrella.co,Design Director,Umbrella,2025-10-20,NA
+b8,Colin Marsh-Jones,colin.mjones@hooli.com,VP of Sales,Hooli,2025-05-14,NA
+b9,James O'Brien,james.obrien@initech.com,Solutions Architect,Initech,2025-09-30,EMEA

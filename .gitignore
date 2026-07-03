@@ -1,0 +1,24 @@
+# secrets & local db
+.env
+twin.db
+*.db
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# os
+.DS_Store
+
+# wallet UI (Vite/React)
+wallet/ui/node_modules/
+wallet/ui/dist/
+wallet/ui/*.tsbuildinfo
+

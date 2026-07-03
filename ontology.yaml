@@ -1,0 +1,115 @@
+# Hand-authored ontology. Unit 2 owns edits (Unit 0 seeded it).
+# `description` is the canonical concept text (contract OntologyNode). `exemplars` are
+# GENERIC concept phrasings + archetype values that Unit 2's classifier embeds and MAX-POOLS
+# over to NOMINATE a shortlist of candidate nodes (recall). An LLM judge then decides among
+# the shortlist by reading the actual sample values (precision). Exemplars are deliberately
+# generic archetypes — NOT the seed's specific people/orgs/titles — so the shortlist is not
+# tuned to one source; the judge reading real values is what generalises to any source.
+# Extra keys are ignored by the frozen OntologyNode model, so this stays contract-safe.
+#
+# NOTE: there is deliberately NO 'region' node. crm_b.region must NOT auto-classify; it
+# proposes a new node through the control plane. This gap is intentional.
+nodes:
+  - name: person
+    description: a person's name — a human individual's full name, personal name, first and last name, or initials
+    exemplars:
+      - full name of a person
+      - personal name
+      - first and last name
+      - Jane Doe
+      - John Smith
+      - A. Rivera
+  - name: email
+    description: an email address for contacting a person
+    exemplars:
+      - email address
+      - contact email
+      - jane.doe@example.com
+      - user@example.org
+  - name: role
+    description: a job title or professional role held by a person, e.g. VP, Director, Head of Ops
+    exemplars:
+      - job title
+      - professional role or position
+      - Chief Technology Officer
+      - Regional Sales Manager
+      - Head of Marketing
+      - Software Engineer
+  - name: organisation
+    description: the name of a company or employer
+    exemplars:
+      - company name
+      - employer name
+      - business or organisation
+      - Example Corp
+      - Contoso Ltd
+      - Northwind Traders
+  - name: phone
+    description: a telephone number
+    exemplars:
+      - telephone number
+      - phone number
+      - +1 555 010 1234
+  - name: topic
+    description: the subject or topic of a conversation, note, or meeting
+    exemplars:
+      - meeting topic
+      - subject discussed
+      - Q3 pricing
+      - contract renewal
+  - name: channel
+    description: the communication channel a conversation happened on
+    exemplars:
+      - communication channel
+      - whatsapp
+      - slack
+      - telegram
+      - email thread
+  - name: transcript
+    description: a pointer or reference to a call transcript or recording, not the content itself
+    exemplars:
+      - transcript link
+      - recording reference
+      - wa_store://call_123
+  - name: note
+    description: a free-text note or comment about a person or interaction
+    exemplars:
+      - free text note
+      - comment
+      - hinted they'd sign at 12%
+
+# ---- concept hierarchy + concept-to-source routing (read-side semantic descent) ----
+# `nodes` above is the CLASSIFICATION vocabulary (field -> node, write-side). `concepts`
+# below is the QUERY vocabulary (query -> concept -> sources, read-side). They are kept
+# SEPARATE on purpose: adding `customer`/`employee` as classifier nodes would perturb
+# Unit 2's shortlists; here they are query concepts only, so classification is untouched.
+#
+# A query resolves to a CONCEPT, then DESCENDS concept -> sources. `customer` and
+# `employee` are kinds of `person`: asking for `person` (under-specified) surfaces every
+# source under it; asking for `customer` prunes to customer sources BEFORE any data is
+# touched (specificity prunes the search space, not the result set). The router has NO
+# source names in code — registering/removing a source is an edit to `sources` ONLY.
+concepts:
+  person: {}                    # root concept — the shared parent
+  customer: {parent: person}    # a person who is a contact/customer in a CRM
+  employee: {parent: person}    # a person employed by the organisation (no source yet)
+  # `personal` is deliberately its OWN root, NOT a descendant of `person`: the frozen engine
+  # test suite pins `ConceptRouter.from_yaml().sources_for("person") == ["crm_a", "crm_b"]`
+  # on the real ontology file, so `person` must keep meaning "the two CRMs" exactly. Colin's
+  # cells from the personal sources reach the wallet through the STORE's durable grouping
+  # (principal_of at onboard time), not through descent — no identity-resolution ambiguity
+  # exists for them, so they never needed to be descent-routed in the first place. Keeping
+  # `personal` a separate root still gets the real pruning benefit: a `customer`/`person`
+  # query never touches the personal sources, and neither does an explicit `personal Colin`
+  # query touch the CRMs.
+  personal: {}                  # a person's private, non-work-facing footprint (notes, personal calls)
+
+# Which concept each registered source instantiates. Both current sources are CRMs, so the
+# demo concept step is a DEGENERATE instance (one concept, both sources under it) — the real
+# descent still runs; it just happens to return both. Add an employee/transactions source by
+# adding a line here; the descent needs no code change (see the generality test).
+sources:
+  crm_a: customer
+  crm_b: customer
+  whatsapp_calls: personal
+  personal_notes: personal
