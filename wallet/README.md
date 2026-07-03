@@ -5,9 +5,12 @@ see what, and ask three questions that render differently depending on who's ask
 
 ## Run it
 
+First-time offline setup: `python scripts/fetch_model.py` once with network; the app then runs fully offline.
+
 ```bash
 # from the repo root, once
 uv venv && uv pip install -e ".[dev]"
+python scripts/fetch_model.py        # one-time, needs network — vendors the embedder locally
 python seed/make_seed.py
 
 # terminal 1 — the API
@@ -23,9 +26,11 @@ Open `http://localhost:5173`. Delete `wallet.db` (repo root) to reset all state 
 data regenerates the same way every time.
 
 Note: the ontology classifier's shortlist step uses a real embedding model
-(`fastembed`/`BAAI/bge-small-en-v1.5`), downloaded on first use. If your network can't reach
-`huggingface.co`, connecting a source will fail — this is the same embedder the engine's own
-Unit 2 tests depend on, not something the wallet layer adds.
+(`fastembed`/`BAAI/bge-small-en-v1.5`) — the same embedder the engine's own Unit 2 tests
+depend on, not something the wallet layer adds. `scripts/fetch_model.py` vendors it into
+`models/` (repo-local, gitignored) once with network; after that, `embed.py` forces
+`HF_HUB_OFFLINE=1` and loads the identical weights with zero network calls, so connecting a
+source works the same whether or not `huggingface.co` is reachable.
 
 ## Click path
 

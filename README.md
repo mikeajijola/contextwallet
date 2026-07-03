@@ -88,9 +88,12 @@ adjudicators use the units' shipped fakes.
 
 ## Setup
 
+First-time offline setup: `python scripts/fetch_model.py` once with network; the app then runs fully offline.
+
 ```bash
 uv venv && uv pip install -e ".[dev]"     # or: pip install -e ".[dev]"
 cp .env.example .env                        # ANTHROPIC_API_KEY only for LIVE adjudicators (tests are offline)
+python scripts/fetch_model.py                # one-time, needs network — vendors the embedder locally
 python seed/make_seed.py                     # generate the seed CSVs
 uv run pytest                                # full suite (all units + descent + e2e + integration fixes)
 ```
