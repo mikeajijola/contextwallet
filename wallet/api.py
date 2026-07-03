@@ -517,6 +517,8 @@ async def send_chat_message(session_id: str, body: ChatRequest):
     # Define tool
     def query_wallet(query: str) -> str:
         """Search the wallet for facts and data using a specific concept or name."""
+        with open("/tmp/tool_called.txt", "a") as f:
+            f.write(f"query_wallet CALLED with query {query}\n")
         try:
             descent = state.descent.query(query, cap, ctx)
             if descent.projected is None or not descent.projected.cells:
