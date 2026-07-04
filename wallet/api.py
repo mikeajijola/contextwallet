@@ -22,7 +22,7 @@ from demo import TwinDemo
 from wallet.adjudicators import ValueJudge, CountingSame
 from wallet.multi_reader import MultiSourceReader
 from wallet.registry import SOURCES, ALL_SOURCES
-from wallet.setup import onboard_one, CONNECT_ORDER
+from wallet.setup import onboard_one, CONNECT_ORDER, ensure_groups
 from wallet.wallet_projector import WalletProjector
 from wallet.wallet_join import cross_source_query as wallet_cross_source_query
 from wallet.fetch import resolve_value
@@ -542,67 +542,84 @@ async def send_chat_message(session_id: str, body: ChatRequest):
     # transcript" button does the pointer -> file read; a bare pointer string isn't a fact.
     _EXCLUDED_NODES = {"transcript"}
 
-    def query_wallet(person_name: str) -> str:
-        """Look up every fact the wallet holds about ONE specific person, by name (e.g.
-        "Colin" or "Colin Marsh") — across every source you're connected to and every
-        attribute (role, organisation, topic, notes, etc.), not just identity fields.
-        Call this once per person mentioned in the question, with just their name."""
+    def query_wallet(person_name: str = "") -> str:
+        """Look up every fact the wallet holds about a person — across every source you're
+        connected to and every attribute (role, organisation, topic, notes, etc.), not just
+        identity fields. Pass a specific person's name (e.g. "Colin Marsh") to search by name.
+        Leave person_name empty for anything that is about the wallet owner without naming
+        anyone else — e.g. "what's the state of the deal?", "what did the note say?", "what
+        was the call about?". Call this once per question."""
         try:
             name_hint = person_name.strip().lower()
-            if not name_hint:
-                return "No person name given."
-
-            # 1. find every visible person-node cell whose dereferenced value mentions
-            #    this name — across ALL sources (not just descent's concept-routed subset,
-            #    since whatsapp_calls/personal_notes classify their identifying field to
-            #    `person` too but live under a separate, non-`person`-rooted concept).
-            person_cells = [c for c in state.demo.store.all_cells() if c.type.ontology_node == "person"]
-            projected = state.wproj.project(person_cells, cap, ctx)
-            matched_keys: set[tuple[str, str]] = set()
-            matched_refs_by_key: dict[tuple[str, str], object] = {}
-            for c in person_cells:
-                pcell = projected.cells.get(c.cell_id)
-                if pcell is None:
-                    continue
-                val = resolve_value(state.demo.ladder, pcell, cap, ctx)
-                if isinstance(val, (Refusal, Symbol)) or name_hint not in val.lower():
-                    continue
-                key = (source_of(c.ref.locator), row_key_of(c.ref.locator))
-                matched_keys.add(key)
-                matched_refs_by_key[key] = c.ref
-
-            if not matched_keys:
-                return f"No person matching {person_name!r} found in the wallet."
-
-            # 2. resolve identity: durable grouping first; a fresh, per-call overlay lives
-            #    the same rule (persists nothing) for any matched row not durably grouped.
-            principal_of_key: dict[tuple[str, str], str] = {}
-            for pid, cell in state.demo.store.all_with_grouping():
-                key = (source_of(cell.ref.locator), row_key_of(cell.ref.locator))
-                if key in matched_keys and pid is not None:
-                    principal_of_key[key] = pid
-
-            # resolve() only returns the component containing the FIRST ref passed in — it
-            # does not merge everyone given to it. Loop so multiple distinct matched-but-
-            # ungrouped people (e.g. an ambiguous name hint) each resolve to their own
-            # principal, instead of every leftover ref being mislabelled with the first
-            # person's id.
+            # "colin marsh" (his actual full name) is included alongside "colin" itself:
+            # otherwise a caller naming him fully collides on substring with the seed's
+            # deliberate near-miss distractor "Colin Marsh-Jones", which starts with the exact
+            # same characters — self-reference by his real name must be as safe as no name.
+            owner_query = name_hint in ("", "colin", "colin marsh", "me", "myself", "i", "the owner")
+            subject = person_name.strip() or "the wallet owner"
             overlay = GroupingOverlay()
-            remaining = [ref for key, ref in matched_refs_by_key.items() if key not in principal_of_key]
-            while remaining:
-                rp = state.demo.resolve(remaining, cap, ctx, overlay)
-                if isinstance(rp, Refusal):
-                    break
-                for ref in rp.member_refs:
-                    key = (source_of(ref.locator), row_key_of(ref.locator))
-                    principal_of_key[key] = rp.principal_id
-                consumed = {(source_of(ref.locator), row_key_of(ref.locator)) for ref in rp.member_refs}
-                remaining = [r for r in remaining
-                            if (source_of(r.locator), row_key_of(r.locator)) not in consumed]
 
-            principal_ids = set(principal_of_key.values())
-            if not principal_ids:
-                return f"Found {person_name!r}, but nothing about them is accessible to you."
+            if owner_query:
+                # The wallet OWNER specifically — the same durable principal_id every source
+                # is grouped to at onboarding (`ensure_groups`/`COLIN_ROWS`), not a name search,
+                # so the seed's deliberate near-miss distractor ("Colin Marsh-Jones", an
+                # unrelated CRM contact who merely shares a first name) can never enter the
+                # picture here. A live resolve() over a couple of descent-routed refs would
+                # instead mint a FRESH overlay principal covering only those refs, missing the
+                # personal_notes/whatsapp_calls rows that are durably (not live-) grouped to
+                # Colin — this reads the durable grouping directly instead.
+                principal_ids = {ensure_groups(state.demo)}
+            else:
+                # 1. find every visible person-node cell whose dereferenced value mentions
+                #    this name — across ALL sources (not just descent's concept-routed subset,
+                #    since whatsapp_calls/personal_notes classify their identifying field to
+                #    `person` too but live under a separate, non-`person`-rooted concept).
+                person_cells = [c for c in state.demo.store.all_cells() if c.type.ontology_node == "person"]
+                projected = state.wproj.project(person_cells, cap, ctx)
+                matched_keys: set[tuple[str, str]] = set()
+                matched_refs_by_key: dict[tuple[str, str], object] = {}
+                for c in person_cells:
+                    pcell = projected.cells.get(c.cell_id)
+                    if pcell is None:
+                        continue
+                    val = resolve_value(state.demo.ladder, pcell, cap, ctx)
+                    if isinstance(val, (Refusal, Symbol)) or name_hint not in val.lower():
+                        continue
+                    key = (source_of(c.ref.locator), row_key_of(c.ref.locator))
+                    matched_keys.add(key)
+                    matched_refs_by_key[key] = c.ref
+
+                if not matched_keys:
+                    return f"No person matching {person_name!r} found in the wallet."
+
+                # 2. resolve identity: durable grouping first; a fresh, per-call overlay lives
+                #    the same rule (persists nothing) for any matched row not durably grouped.
+                principal_of_key: dict[tuple[str, str], str] = {}
+                for pid, cell in state.demo.store.all_with_grouping():
+                    key = (source_of(cell.ref.locator), row_key_of(cell.ref.locator))
+                    if key in matched_keys and pid is not None:
+                        principal_of_key[key] = pid
+
+                # resolve() only returns the component containing the FIRST ref passed in — it
+                # does not merge everyone given to it. Loop so multiple distinct matched-but-
+                # ungrouped people (e.g. an ambiguous name hint) each resolve to their own
+                # principal, instead of every leftover ref being mislabelled with the first
+                # person's id.
+                remaining = [ref for key, ref in matched_refs_by_key.items() if key not in principal_of_key]
+                while remaining:
+                    rp = state.demo.resolve(remaining, cap, ctx, overlay)
+                    if isinstance(rp, Refusal):
+                        break
+                    for ref in rp.member_refs:
+                        key = (source_of(ref.locator), row_key_of(ref.locator))
+                        principal_of_key[key] = rp.principal_id
+                    consumed = {(source_of(ref.locator), row_key_of(ref.locator)) for ref in rp.member_refs}
+                    remaining = [r for r in remaining
+                                if (source_of(r.locator), row_key_of(r.locator)) not in consumed]
+
+                principal_ids = set(principal_of_key.values())
+                if not principal_ids:
+                    return f"Found {person_name!r}, but nothing about them is accessible to you."
 
             # 3. pull every accessible ontology-node value for each resolved principal
             #    through the SAME leak-safe join the deal-status card uses (existence-
@@ -636,7 +653,7 @@ async def send_chat_message(session_id: str, body: ChatRequest):
                     per_principal_label[pid] = labels[0] if labels else pid
 
             if not per_principal:
-                return f"Found {person_name!r}, but nothing about them is accessible to you."
+                return f"Found {subject}, but nothing about them is accessible to you."
 
             if len(per_principal) == 1:
                 return "\n".join(next(iter(per_principal.values())))
@@ -662,16 +679,20 @@ async def send_chat_message(session_id: str, body: ChatRequest):
 
     sys_prompt = (
         "You are a helpful AI assistant with access to a governed digital twin wallet via "
-        "the query_wallet tool. This wallet belongs to one person, Colin — if the user's "
-        "question doesn't name anyone (e.g. \"what did the note say about the mortgage?\"), "
-        "assume they mean Colin, or whoever the conversation was already about, rather than "
-        "declining to look. Call query_wallet with just the person's name (e.g. \"Colin\"), "
-        "not the whole question. Answer using only what the tool returns — if it says "
-        "nothing is accessible, say so plainly rather than guessing. If the tool's result "
-        "says a name matches more than one DISTINCT person, they are different people, NOT "
-        "aliases of one person — never combine their facts into a single description (never "
-        "say things like \"also known as\" across the '===' blocks). Tell the user there are "
-        "multiple matches, summarise each separately, and ask which one they meant."
+        "the query_wallet tool. This wallet belongs to one person, Colin. NEVER pass \"Colin\" "
+        "(or any other spelling/variant of his name) as person_name — searching by his own "
+        "name can surface an unrelated CRM contact who just happens to share his first name, "
+        "which is never what you want here. If the question doesn't name some OTHER, specific "
+        "person (e.g. \"what's the state of the deal?\", \"what did the note say?\", \"what "
+        "was the call about?\", \"what's his role?\"), call query_wallet with person_name left "
+        "EMPTY — that looks up the wallet owner directly. Only pass a person_name when the "
+        "user names someone else to search for. Call the tool with just a name (or nothing), "
+        "never the whole question. Answer using only what the tool returns — if it says nothing is "
+        "accessible, say so plainly rather than guessing. If the tool's result says a name "
+        "matches more than one DISTINCT person, they are different people, NOT aliases of one "
+        "person — never combine their facts into a single description (never say things like "
+        "\"also known as\" across the '===' blocks). Tell the user there are multiple matches, "
+        "summarise each separately, and ask which one they meant."
     )
 
     try:
