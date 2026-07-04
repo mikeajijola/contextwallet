@@ -515,38 +515,110 @@ async def send_chat_message(session_id: str, body: ChatRequest):
     history = get_session_history(db_path, session_id, limit=7)
     
     # Define tool
-    def query_wallet(query: str) -> str:
-        """Search the wallet for facts and data using a specific concept or name."""
-        with open("/tmp/tool_called.txt", "a") as f:
-            f.write(f"query_wallet CALLED with query {query}\n")
+    # NODE excluded from the general dump: `transcript` cells hold a raw edge pointer
+    # (e.g. "wa_store://call_c1"), not text worth surfacing — the UI's dedicated "Open
+    # transcript" button does the pointer -> file read; a bare pointer string isn't a fact.
+    _EXCLUDED_NODES = {"transcript"}
+
+    def query_wallet(person_name: str) -> str:
+        """Look up every fact the wallet holds about ONE specific person, by name (e.g.
+        "Colin" or "Colin Marsh") — across every source you're connected to and every
+        attribute (role, organisation, topic, notes, etc.), not just identity fields.
+        Call this once per person mentioned in the question, with just their name."""
         try:
-            descent = state.descent.query(query, cap, ctx)
-            if descent.projected is None or not descent.projected.cells:
-                return "No information found."
-            
-            results = []
-            for cell_id, pcell in descent.projected.cells.items():
+            name_hint = person_name.strip().lower()
+            if not name_hint:
+                return "No person name given."
+
+            # 1. find every visible person-node cell whose dereferenced value mentions
+            #    this name — across ALL sources (not just descent's concept-routed subset,
+            #    since whatsapp_calls/personal_notes classify their identifying field to
+            #    `person` too but live under a separate, non-`person`-rooted concept).
+            person_cells = [c for c in state.demo.store.all_cells() if c.type.ontology_node == "person"]
+            projected = state.wproj.project(person_cells, cap, ctx)
+            matched_keys: set[tuple[str, str]] = set()
+            matched_refs_by_key: dict[tuple[str, str], object] = {}
+            for c in person_cells:
+                pcell = projected.cells.get(c.cell_id)
+                if pcell is None:
+                    continue
                 val = resolve_value(state.demo.ladder, pcell, cap, ctx)
-                if type(val).__name__ not in ("Refusal", "Symbol"):
-                    results.append(f"{field_of(pcell.ref.locator)}: {val}")
-                    
+                if isinstance(val, (Refusal, Symbol)) or name_hint not in val.lower():
+                    continue
+                key = (source_of(c.ref.locator), row_key_of(c.ref.locator))
+                matched_keys.add(key)
+                matched_refs_by_key[key] = c.ref
+
+            if not matched_keys:
+                return f"No person matching {person_name!r} found in the wallet."
+
+            # 2. resolve identity: durable grouping first; a fresh, per-call overlay lives
+            #    the same rule (persists nothing) for any matched row not durably grouped.
+            principal_of_key: dict[tuple[str, str], str] = {}
+            for pid, cell in state.demo.store.all_with_grouping():
+                key = (source_of(cell.ref.locator), row_key_of(cell.ref.locator))
+                if key in matched_keys and pid is not None:
+                    principal_of_key[key] = pid
+
+            # resolve() only returns the component containing the FIRST ref passed in — it
+            # does not merge everyone given to it. Loop so multiple distinct matched-but-
+            # ungrouped people (e.g. an ambiguous name hint) each resolve to their own
+            # principal, instead of every leftover ref being mislabelled with the first
+            # person's id.
+            overlay = GroupingOverlay()
+            remaining = [ref for key, ref in matched_refs_by_key.items() if key not in principal_of_key]
+            while remaining:
+                rp = state.demo.resolve(remaining, cap, ctx, overlay)
+                if isinstance(rp, Refusal):
+                    break
+                for ref in rp.member_refs:
+                    key = (source_of(ref.locator), row_key_of(ref.locator))
+                    principal_of_key[key] = rp.principal_id
+                consumed = {(source_of(ref.locator), row_key_of(ref.locator)) for ref in rp.member_refs}
+                remaining = [r for r in remaining
+                            if (source_of(r.locator), row_key_of(r.locator)) not in consumed]
+
+            principal_ids = set(principal_of_key.values())
+            if not principal_ids:
+                return f"Found {person_name!r}, but nothing about them is accessible to you."
+
+            # 3. pull every accessible ontology-node value for each resolved principal
+            #    through the SAME leak-safe join the deal-status card uses (existence-
+            #    filtered before the dereference check, so an invisible cell is omitted,
+            #    never a reason to refuse the whole answer).
+            results: list[str] = []
+            for pid in principal_ids:
+                cells_for_pid = overlay.cells_for(state.demo.store, pid)
+                nodes = sorted({c.type.ontology_node for c in cells_for_pid} - _EXCLUDED_NODES)
+                for node in nodes:
+                    cs = wallet_cross_source_query(state.demo.store, overlay, pid, node, cap, ctx,
+                                                   state.demo.ladder, state.demo.registry,
+                                                   state.demo.reader, state.wproj)
+                    if isinstance(cs, Refusal) or not cs.values:
+                        continue
+                    for v in cs.values:
+                        results.append(f"{node} ({v.source}): {v.value}")
+
             if not results:
-                return "No accessible values found."
-            return "\n".join(results)
+                return f"Found {person_name!r}, but nothing about them is accessible to you."
+            return "\n".join(sorted(set(results)))
         except Exception as e:
             return f"Error executing query_wallet: {e}"
-    
+
     # Convert history for Gemini
     contents = []
     for msg in history[:-1]:  # Exclude current message which is added at the end
         contents.append(types.Content(role=msg.role, parts=[types.Part.from_text(text=msg.content)]))
-    
-    sys_prompt = "You are a helpful AI assistant. You have a tool to query the digital twin wallet. Get all your facts by querying the wallet."
-    
-    print(f"DEBUG API: calling generate_content for session {session_id}")
-    def dummy_tool(text: str) -> str:
-        """A simple dummy tool."""
-        return "Dummy response"
+
+    sys_prompt = (
+        "You are a helpful AI assistant with access to a governed digital twin wallet via "
+        "the query_wallet tool. This wallet belongs to one person, Colin — if the user's "
+        "question doesn't name anyone (e.g. \"what did the note say about the mortgage?\"), "
+        "assume they mean Colin, or whoever the conversation was already about, rather than "
+        "declining to look. Call query_wallet with just the person's name (e.g. \"Colin\"), "
+        "not the whole question. Answer using only what the tool returns — if it says "
+        "nothing is accessible, say so plainly rather than guessing."
+    )
 
     try:
         response = genai_client.models.generate_content(
@@ -554,7 +626,7 @@ async def send_chat_message(session_id: str, body: ChatRequest):
             contents=contents + [body.message],
             config=types.GenerateContentConfig(
                 system_instruction=sys_prompt,
-                tools=[query_wallet, dummy_tool],
+                tools=[query_wallet],
                 temperature=0.2,
             )
         )

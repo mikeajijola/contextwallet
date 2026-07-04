@@ -22,3 +22,7 @@ wallet/ui/node_modules/
 wallet/ui/dist/
 wallet/ui/*.tsbuildinfo
 
+# vendored embedding model (~100-130MB) — reproduced per-machine by scripts/fetch_model.py,
+# not version-controlled (no git-LFS set up for this repo)
+/models/
+
