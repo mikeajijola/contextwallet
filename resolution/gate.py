@@ -86,6 +86,17 @@ def owner_only_deref(cap: Capability, ctx: Context) -> bool:
     return is_owner(cap, ctx)
 
 
+def wallet_deref_source_only(cap: Capability, ctx: Context) -> bool:
+    """Dereference for cells where a row-share caveat buys existence only, never the value —
+    only the owner or a genuine SOURCE-level grant (`src:`) may read the data. Existence still
+    goes through `wallet_visible` (which accepts row-share), so a row-scoped viewer sees that
+    a signal/note exists without ever being able to read its content; a source-scoped viewer
+    (a full `src:` grant, e.g. Acme's org-wide access) reads it normally."""
+    if is_owner(cap, ctx):
+        return True
+    return _src_caveat_ok(cap, ctx.get("_cell_source", ""))
+
+
 # resolution's identifying reads (name/email) are dereferences — gated by the same rule.
 # Backwards-compatible OR: old analyst/hr caps still pass via hr_dereference; wallet caps
 # (purpose "wallet_query") pass via the new clause. resolver.py itself is untouched.
@@ -126,15 +137,24 @@ DENY_ALL = CellPolicy(policy_id="__deny_all__", see_existence=deny, see_type=den
                       see_state=deny, dereference=deny)
 
 # ---- wallet policies (journey demo) — ADDITIVE ------------------------------------
-# `owner_private` and `org_work` share the SAME predicate logic on purpose: the difference
-# is entirely in which caveats each consumer's capability carries (notes are private because
-# nobody but the owner is granted `src:personal_notes`, not because the policy names them).
+# owner_private: dereference is ALWAYS owner-only, regardless of caveat — a toggle that makes
+# a personal_notes/chat_history cell visible to someone else grants existence (the ontology),
+# never the content. Nobody but Colin ever reads the actual note/message text.
 OWNER_PRIVATE = CellPolicy(policy_id="owner_private", see_existence=wallet_visible,
                            see_type=wallet_visible, see_state=wallet_visible,
-                           dereference=wallet_deref)
+                           dereference=owner_only_deref)
+# org_work: existence AND dereference both accept src: or share: — used by the two CRMs,
+# where a row-share grant (e.g. Partner's "Stripe deal only" rows) is meant to actually read
+# the shared contact's fields, not just see that they exist.
 ORG_WORK = CellPolicy(policy_id="org_work", see_existence=wallet_visible,
                       see_type=wallet_visible, see_state=wallet_visible,
                       dereference=wallet_deref)
+# org_signal: existence accepts src: or share:, but dereference requires a full SOURCE grant
+# (or the owner) — a row-share caveat alone (Partner-style) sees that the signal exists, never
+# its value; a source-wide caveat (Acme-style `src:whatsapp_calls`) still reads it normally.
+ORG_SIGNAL = CellPolicy(policy_id="org_signal", see_existence=wallet_visible,
+                        see_type=wallet_visible, see_state=wallet_visible,
+                        dereference=wallet_deref_source_only)
 CALL_CONTENT = CellPolicy(policy_id="call_content", see_existence=wallet_visible,
                           see_type=wallet_visible, see_state=wallet_visible,
                           dereference=owner_only_deref)
@@ -147,7 +167,7 @@ class PolicyRegistry:
         self._by_id: dict[str, CellPolicy] = {}
         for p in (policies if policies is not None else
                  [OPEN, ROLE_GATED, SECRET, HR_SCOPED, DEFAULT,
-                  OWNER_PRIVATE, ORG_WORK, CALL_CONTENT]):
+                  OWNER_PRIVATE, ORG_WORK, ORG_SIGNAL, CALL_CONTENT]):
             self._by_id[p.policy_id] = p
         self.unknown_lookups = 0   # observable counter: an unknown id is a gap you want to see
 

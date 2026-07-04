@@ -16,7 +16,7 @@ SOURCES: dict[str, dict] = {
                  fmt="sqlite", db=str(SEED / "crm_b.db"), table="contacts"),
     "personal_notes": dict(key_field="note_id", email_field=None, policy="owner_private", label="Personal notes",
                            fmt="sqlite", db=str(SEED / "personal_notes.db"), table="notes"),
-    "whatsapp_calls": dict(key_field="call_id", email_field=None, policy="org_work", label="WhatsApp calls",
+    "whatsapp_calls": dict(key_field="call_id", email_field=None, policy="org_signal", label="WhatsApp calls",
                           fmt="sqlite", db=str(SEED / "whatsapp_calls.db"), table="calls"),
     "chat_history": dict(key_field="message_id", email_field=None, policy="owner_private", label="Chat History",
                          fmt="sqlite", db=str(SEED / "chat_history.db"), table="messages"),
