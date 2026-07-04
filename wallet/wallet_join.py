@@ -7,10 +7,11 @@ refusal (leak discipline: absence leaks nothing, same principle as the map). `fe
 is engine code and stays untouched; this is the wallet's own call site for the same
 Dana-rule overlay read (`overlay.cells_for`).
 
-In THIS seed, a cell that fails existence for a viewer under `org_work`/`owner_private`
-always fails dereference too (same predicate, `wallet_deref` == `wallet_visible`) — so
-pre-filtering by existence and then running the engine's per-cell dereference loop over the
-survivors is equivalent to the engine behaviour, just leak-safe first.
+A cell that fails existence for a viewer is never even offered to the dereference loop, so
+pre-filtering by existence first is always safe. But existence passing does NOT imply
+dereference passing — under `owner_private` and `org_work`/`org_signal`, a row-share caveat
+alone buys existence, never the value, so a visible cell can still refuse at the dereference
+step below (leak-safe: a flat refusal, never a partial/masked value).
 """
 from __future__ import annotations
 from typing import Union

@@ -78,10 +78,6 @@ def wallet_visible(cap: Capability, ctx: Context) -> bool:
     return is_owner(cap, ctx) or _src_caveat_ok(cap, src) or _row_share_ok(cap, src, row)
 
 
-def wallet_deref(cap: Capability, ctx: Context) -> bool:
-    return wallet_visible(cap, ctx)
-
-
 def owner_only_deref(cap: Capability, ctx: Context) -> bool:
     return is_owner(cap, ctx)
 
@@ -143,12 +139,14 @@ DENY_ALL = CellPolicy(policy_id="__deny_all__", see_existence=deny, see_type=den
 OWNER_PRIVATE = CellPolicy(policy_id="owner_private", see_existence=wallet_visible,
                            see_type=wallet_visible, see_state=wallet_visible,
                            dereference=owner_only_deref)
-# org_work: existence AND dereference both accept src: or share: — used by the two CRMs,
-# where a row-share grant (e.g. Partner's "Stripe deal only" rows) is meant to actually read
-# the shared contact's fields, not just see that they exist.
+# org_work: existence accepts src: or share:, but dereference requires a full SOURCE grant
+# (or the owner) — same "toggle grants visibility, not access" rule as org_signal, applied to
+# the two CRMs. A row-share caveat alone (Partner-style: "here's the Stripe deal contact")
+# sees that the row exists, never its fields; a source-wide caveat (Acme-style `src:crm_a`)
+# still reads it normally.
 ORG_WORK = CellPolicy(policy_id="org_work", see_existence=wallet_visible,
                       see_type=wallet_visible, see_state=wallet_visible,
-                      dereference=wallet_deref)
+                      dereference=wallet_deref_source_only)
 # org_signal: existence accepts src: or share:, but dereference requires a full SOURCE grant
 # (or the owner) — a row-share caveat alone (Partner-style) sees that the signal exists, never
 # its value; a source-wide caveat (Acme-style `src:whatsapp_calls`) still reads it normally.

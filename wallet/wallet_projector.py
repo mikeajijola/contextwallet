@@ -1,7 +1,7 @@
 """The wallet's Gate-1 projector.
 
 TRAP #3 (pre-solved, see the build brief): predicates receive `(cap, ctx)` only — they
-cannot see the cell. `wallet_visible`/`wallet_deref` (resolution/gate.py) read
+cannot see the cell. `wallet_visible`/`wallet_deref_source_only` (resolution/gate.py) read
 `ctx['_cell_source']` / `ctx['_cell_row']`, so this subclass injects those two keys into a
 COPY of ctx per cell before every `gate.check` call. Otherwise identical to
 `resolution.projection.Projector.project` — the engine Projector itself is untouched.

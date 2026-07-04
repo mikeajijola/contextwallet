@@ -148,10 +148,11 @@ def _cap_for(cap_id: str):
     raise HTTPException(404, "unknown or stale cap_id")
 
 
-# sources whose toggle only ever grants ontology/existence — the actual value stays
-# owner-gated (org_signal for whatsapp_calls' non-transcript fields, owner_private for
-# personal_notes/chat_history), regardless of which non-owner consumer flips it on.
-_EXISTENCE_ONLY_SOURCES = {"whatsapp_calls", "personal_notes", "chat_history"}
+# sources whose toggle, for a non-owner with a full SOURCE grant, still only ever grants
+# ontology/existence — the actual value stays owner-gated regardless (owner_private for
+# personal_notes/chat_history). whatsapp_calls is handled separately below: a source grant
+# there does dereference the call's own fields (org_signal), just never the transcript.
+_EXISTENCE_ONLY_SOURCES = {"personal_notes", "chat_history"}
 
 
 def _consumer_row(c: dict) -> dict:
@@ -163,12 +164,15 @@ def _consumer_row(c: dict) -> dict:
     is_row_scoped = bool(c["rows"])
     for source, enabled in c["sources"].items():
         entry = {"source": source, "label": SOURCES[source]["label"], "enabled": enabled}
-        if not c["owner"] and source in _EXISTENCE_ONLY_SOURCES:
+        if not c["owner"]:
             if is_row_scoped:
+                # a row-share caveat never dereferences anything, on any source — every
+                # policy here (org_work/org_signal/owner_private) treats row-share as
+                # existence-only, so a row-scoped viewer never reads the actual value.
                 entry["note"] = "existence only — only Colin reads the data"
             elif source == "whatsapp_calls":
                 entry["note"] = "signal — transcript locked"
-            else:
+            elif source in _EXISTENCE_ONLY_SOURCES:
                 entry["note"] = "existence only — only Colin reads the data"
         row["sources"].append(entry)
     return row
