@@ -585,11 +585,20 @@ async def send_chat_message(session_id: str, body: ChatRequest):
             # 3. pull every accessible ontology-node value for each resolved principal
             #    through the SAME leak-safe join the deal-status card uses (existence-
             #    filtered before the dereference check, so an invisible cell is omitted,
-            #    never a reason to refuse the whole answer).
-            results: list[str] = []
+            #    never a reason to refuse the whole answer) — kept PER PRINCIPAL. A name
+            #    hint like "Colin" also substring-matches the seed's deliberate near-miss
+            #    distractor "Colin Marsh-Jones" (a different person, different org, already
+            #    durably grouped separately at onboarding — no live resolution even runs for
+            #    either of them). Flattening both principals' facts into one list is exactly
+            #    the bug that made the model describe them as one person with "aliases" —
+            #    never merge across principal_ids, however many matched.
+            per_principal: dict[str, list[str]] = {}
+            per_principal_label: dict[str, str] = {}
             for pid in principal_ids:
                 cells_for_pid = overlay.cells_for(state.demo.store, pid)
                 nodes = sorted({c.type.ontology_node for c in cells_for_pid} - _EXCLUDED_NODES)
+                facts: list[str] = []
+                labels: list[str] = []
                 for node in nodes:
                     cs = wallet_cross_source_query(state.demo.store, overlay, pid, node, cap, ctx,
                                                    state.demo.ladder, state.demo.registry,
@@ -597,11 +606,30 @@ async def send_chat_message(session_id: str, body: ChatRequest):
                     if isinstance(cs, Refusal) or not cs.values:
                         continue
                     for v in cs.values:
-                        results.append(f"{node} ({v.source}): {v.value}")
+                        facts.append(f"{node} ({v.source}): {v.value}")
+                        if node == "person":
+                            labels.append(v.value)
+                if facts:
+                    per_principal[pid] = sorted(set(facts))
+                    per_principal_label[pid] = labels[0] if labels else pid
 
-            if not results:
+            if not per_principal:
                 return f"Found {person_name!r}, but nothing about them is accessible to you."
-            return "\n".join(sorted(set(results)))
+
+            if len(per_principal) == 1:
+                return "\n".join(next(iter(per_principal.values())))
+
+            blocks = [
+                f"=== {per_principal_label[pid]} (a DIFFERENT person — do not merge with the others) ===\n"
+                + "\n".join(per_principal[pid])
+                for pid in per_principal
+            ]
+            return (
+                f"{person_name!r} matches more than one DISTINCT person in the wallet. "
+                "These are different people, not aliases of one person — keep their facts "
+                "separate in your answer, and ask the user which one they mean if unclear:\n\n"
+                + "\n\n".join(blocks)
+            )
         except Exception as e:
             return f"Error executing query_wallet: {e}"
 
@@ -617,7 +645,11 @@ async def send_chat_message(session_id: str, body: ChatRequest):
         "assume they mean Colin, or whoever the conversation was already about, rather than "
         "declining to look. Call query_wallet with just the person's name (e.g. \"Colin\"), "
         "not the whole question. Answer using only what the tool returns — if it says "
-        "nothing is accessible, say so plainly rather than guessing."
+        "nothing is accessible, say so plainly rather than guessing. If the tool's result "
+        "says a name matches more than one DISTINCT person, they are different people, NOT "
+        "aliases of one person — never combine their facts into a single description (never "
+        "say things like \"also known as\" across the '===' blocks). Tell the user there are "
+        "multiple matches, summarise each separately, and ask which one they meant."
     )
 
     try:
