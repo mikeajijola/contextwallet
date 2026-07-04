@@ -71,9 +71,15 @@ class WalletState:
                         sources={"crm_a": True, "crm_b": True, "whatsapp_calls": True, "personal_notes": False},
                         rows=None, cap=None),
             "partner": dict(consumer_id="partner", label="External partner", holder="partner",
-                            owner=False, active=False, 
+                            owner=False, active=False,
                             sources={"crm_a": True, "crm_b": True, "whatsapp_calls": False, "personal_notes": False},
-                            rows=[("crm_a", "a1"), ("crm_b", "b1")], cap=None),
+                            # row-share, not source-share: crm_a/crm_b rows are dereferenceable
+                            # (org_work); whatsapp_calls/personal_notes rows are existence-only
+                            # even when toggled on (org_signal/owner_private are owner-gated for
+                            # dereference) — flipping these switches lets Partner see that a
+                            # signal/note exists, never its content.
+                            rows=[("crm_a", "a1"), ("crm_b", "b1"),
+                                 ("whatsapp_calls", "c1"), ("personal_notes", "n1")], cap=None),
         }
         for consumer_id in self.consumers:
             remint(self, consumer_id)
@@ -142,16 +148,28 @@ def _cap_for(cap_id: str):
     raise HTTPException(404, "unknown or stale cap_id")
 
 
+# sources whose toggle only ever grants ontology/existence — the actual value stays
+# owner-gated (org_signal for whatsapp_calls' non-transcript fields, owner_private for
+# personal_notes/chat_history), regardless of which non-owner consumer flips it on.
+_EXISTENCE_ONLY_SOURCES = {"whatsapp_calls", "personal_notes", "chat_history"}
+
+
 def _consumer_row(c: dict) -> dict:
     row = {
         "consumer_id": c["consumer_id"], "label": c["label"], "owner": c["owner"],
         "active": c["active"], "cap_id": c["cap"].id() if c["cap"] else None,
         "sources": [],
     }
+    is_row_scoped = bool(c["rows"])
     for source, enabled in c["sources"].items():
         entry = {"source": source, "label": SOURCES[source]["label"], "enabled": enabled}
-        if c["consumer_id"] == "acme" and source == "whatsapp_calls":
-            entry["note"] = "signal — transcript locked"
+        if not c["owner"] and source in _EXISTENCE_ONLY_SOURCES:
+            if is_row_scoped:
+                entry["note"] = "existence only — only Colin reads the data"
+            elif source == "whatsapp_calls":
+                entry["note"] = "signal — transcript locked"
+            else:
+                entry["note"] = "existence only — only Colin reads the data"
         row["sources"].append(entry)
     return row
 
